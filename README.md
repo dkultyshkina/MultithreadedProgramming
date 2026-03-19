@@ -78,6 +78,16 @@ make clean
 [==========] 7 tests from 1 test suite ran. (27 ms total)
 [  PASSED  ] 7 tests.
 ```
+
+Тест:
+1. SimpleIncrement - проверяет, что функция применяется ко всем элементам с инкрементом каждого элемента на 1, с 2 потоками
+2. SingleThread - проверяет работу с 1 потоком, умножение на 2
+3. MoreThreadsThanElements - перебирает потоки
+4. EmptyVector - проверяет обработку пустого входного вектора
+5. ZeroThreads - нулевое количество потоков
+6. HeavyFunction - тяжелая функция
+7. StatefulFunction - функция с состоянием
+
 ## Benchmark
 ```
 Running ./run_benchmark
