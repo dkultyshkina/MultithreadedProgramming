@@ -1,5 +1,6 @@
 #include <atomic>
-#include <cerrno>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <optional>
@@ -12,7 +13,7 @@
 #include <vector>
 
 constexpr int PROTO_VER = 1;
-constexpr int MAX_MSG_SIZE = 256;
+constexpr int MAX_MSG_SIZE = 4096;
 constexpr uint32_t MAGIC_NUM = 0xCAFEBABE;
 
 struct Message {
@@ -20,8 +21,6 @@ struct Message {
   std::atomic<int> type{-1};
   std::atomic<int> len{0};
   char data[MAX_MSG_SIZE];
-
-  Message() : ready(0), type(-1), len(0) { std::memset(data, 0, sizeof(data)); }
 };
 
 struct ControlBlock {
@@ -35,26 +34,28 @@ struct ControlBlock {
 class ProducerNode {
 public:
   ProducerNode(const std::string &path, int capacity)
-      : ctrl_(nullptr), msgs_(nullptr), slot_cnt_(capacity), path_(path),
-        map_size_(0), is_owner_(false) {
-    size_t total =
-        sizeof(ControlBlock) + static_cast<size_t>(capacity) * sizeof(Message);
+      : ctrl_(nullptr), msgs_(nullptr), slot_cnt_(capacity), map_size_(0) {
+    if (capacity < 2) {
+      throw std::runtime_error("capacity должен быть >= 2");
+    }
+    const std::size_t total =
+        sizeof(ControlBlock) +
+        static_cast<std::size_t>(capacity) * sizeof(Message);
     int fd = shm_open(path.c_str(), O_CREAT | O_RDWR, 0666);
     if (fd == -1) {
       throw std::runtime_error("shm_open не сработал: " + path);
     }
-    struct stat st;
+    struct stat st {};
     if (fstat(fd, &st) == -1) {
       close(fd);
       throw std::runtime_error("fstat не сработал");
     }
-    bool needs_init = (st.st_size < (long)total);
-    if (needs_init) {
-      if (ftruncate(fd, total) == -1) {
+    const bool need_init = static_cast<std::size_t>(st.st_size) < total;
+    if (need_init) {
+      if (ftruncate(fd, static_cast<off_t>(total)) == -1) {
         close(fd);
         throw std::runtime_error("ftruncate не сработал");
       }
-      is_owner_ = true;
     }
     void *ptr = mmap(nullptr, total, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
@@ -66,11 +67,10 @@ public:
     msgs_ = reinterpret_cast<Message *>(reinterpret_cast<char *>(ctrl_) +
                                         sizeof(ControlBlock));
     map_size_ = total;
-    uint32_t expected = 0;
-    bool first = ctrl_->magic.compare_exchange_strong(
-        expected, MAGIC_NUM, std::memory_order_acq_rel,
+    uint32_t expected_magic = 0;
+    const bool first = ctrl_->magic.compare_exchange_strong(
+        expected_magic, MAGIC_NUM, std::memory_order_acq_rel,
         std::memory_order_relaxed);
-
     if (first) {
       ctrl_->version.store(PROTO_VER, std::memory_order_relaxed);
       ctrl_->slots.store(capacity, std::memory_order_relaxed);
@@ -79,16 +79,21 @@ public:
       std::atomic_thread_fence(std::memory_order_release);
       for (int i = 0; i < capacity; ++i) {
         msgs_[i].ready.store(0, std::memory_order_relaxed);
-        msgs_[i].type = -1;
-        msgs_[i].len = 0;
+        msgs_[i].type.store(-1, std::memory_order_relaxed);
+        msgs_[i].len.store(0, std::memory_order_relaxed);
       }
     } else {
-      is_owner_ = false;
       if (ctrl_->magic.load(std::memory_order_acquire) != MAGIC_NUM ||
           ctrl_->version.load(std::memory_order_acquire) != PROTO_VER) {
-        throw std::runtime_error("Ошибка с протоколом или с числом");
+        munmap(ptr, total);
+        throw std::runtime_error("protocol не совпадает");
       }
-      slot_cnt_ = ctrl_->slots.load(std::memory_order_acquire);
+      const int existing = ctrl_->slots.load(std::memory_order_acquire);
+      if (existing != capacity) {
+        munmap(ptr, total);
+        throw std::runtime_error("capacity не совпадает");
+      }
+      slot_cnt_ = existing;
     }
   }
 
@@ -103,157 +108,133 @@ public:
     }
   }
 
-  bool push(int msg_type, std::span<const std::byte> payload) {
-    if (payload.size() > MAX_MSG_SIZE) {
+  bool push(int32_t msg_type, std::span<const std::byte> payload) {
+    if (payload.size() > static_cast<std::size_t>(MAX_MSG_SIZE)) {
       return false;
     }
     uint32_t pos = ctrl_->prod_pos.load(std::memory_order_relaxed);
-    uint32_t next;
+    uint32_t next_pos = 0;
+    const int cap = slot_cnt_;
     do {
-      uint32_t cons = ctrl_->cons_pos.load(std::memory_order_acquire);
-      int capacity = slot_cnt_;
-      uint32_t used = (pos - cons + capacity) % capacity;
-      if (used >= static_cast<uint32_t>(capacity) - 1) {
+      const uint32_t cons = ctrl_->cons_pos.load(std::memory_order_acquire);
+      const uint32_t used = (pos - cons + static_cast<uint32_t>(cap)) %
+                            static_cast<uint32_t>(cap);
+      if (used >= static_cast<uint32_t>(cap) - 1U) {
         return false;
       }
-      next = (pos + 1) % capacity;
+      next_pos = (pos + 1U) % static_cast<uint32_t>(cap);
     } while (!ctrl_->prod_pos.compare_exchange_strong(
-        pos, next, std::memory_order_acq_rel, std::memory_order_relaxed));
-    Message *slot = &msgs_[pos];
-    slot->type = msg_type;
-    slot->len = static_cast<int>(payload.size());
-    std::memcpy(slot->data, payload.data(), payload.size());
-    slot->ready.store(1, std::memory_order_release);
-    return true;
-  }
-
-  void cleanup() {
-    if (is_owner_ && !path_.empty()) {
-      if (shm_unlink(path_.c_str()) == -1 && errno != ENOENT) {
-      }
+        pos, next_pos, std::memory_order_acq_rel, std::memory_order_relaxed));
+    Message &slot = msgs_[pos];
+    slot.type.store(msg_type, std::memory_order_relaxed);
+    slot.len.store(static_cast<int>(payload.size()), std::memory_order_relaxed);
+    if (!payload.empty()) {
+      std::memcpy(slot.data, payload.data(), payload.size());
     }
+    slot.ready.store(1, std::memory_order_release);
+    return true;
   }
 
 private:
   ControlBlock *ctrl_;
   Message *msgs_;
   int slot_cnt_;
-  std::string path_;
-  size_t map_size_;
-  bool is_owner_;
+  std::size_t map_size_;
 };
 
 class ConsumerNode {
 public:
-  ConsumerNode(const std::string &path)
+  explicit ConsumerNode(const std::string &path)
       : ctrl_(nullptr), msgs_(nullptr), slot_cnt_(0), map_size_(0) {
     int fd = shm_open(path.c_str(), O_RDWR, 0666);
     if (fd == -1) {
       throw std::runtime_error("shm_open не сработал: " + path);
     }
-    struct stat st;
+    struct stat st {};
     if (fstat(fd, &st) == -1) {
       close(fd);
       throw std::runtime_error("fstat не сработал");
     }
-    void *ptr =
-        mmap(nullptr, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void *ptr = mmap(nullptr, static_cast<std::size_t>(st.st_size),
+                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (ptr == MAP_FAILED) {
       close(fd);
       throw std::runtime_error("mmap не сработал");
     }
     close(fd);
     ctrl_ = static_cast<ControlBlock *>(ptr);
-    map_size_ = st.st_size;
+    map_size_ = static_cast<std::size_t>(st.st_size);
     if (ctrl_->magic.load(std::memory_order_acquire) != MAGIC_NUM ||
         ctrl_->version.load(std::memory_order_acquire) != PROTO_VER) {
-      ctrl_ = nullptr;
       munmap(ptr, map_size_);
-      throw std::runtime_error("Проблемы с числом или с протоколом");
+      throw std::runtime_error("protocol не совпадает");
     }
     slot_cnt_ = ctrl_->slots.load(std::memory_order_acquire);
-    size_t expected_size =
-        sizeof(ControlBlock) + static_cast<size_t>(slot_cnt_) * sizeof(Message);
-    if (map_size_ < expected_size) {
-      ctrl_ = nullptr;
+    const std::size_t expected_size =
+        sizeof(ControlBlock) +
+        static_cast<std::size_t>(slot_cnt_) * sizeof(Message);
+    if (map_size_ < expected_size || slot_cnt_ < 2) {
       munmap(ptr, map_size_);
-      throw std::runtime_error("Неправильный размер");
+      throw std::runtime_error("Невалидный размео segment");
     }
     msgs_ = reinterpret_cast<Message *>(reinterpret_cast<char *>(ctrl_) +
                                         sizeof(ControlBlock));
   }
+
   ConsumerNode(const ConsumerNode &) = delete;
   ConsumerNode &operator=(const ConsumerNode &) = delete;
   ConsumerNode(ConsumerNode &&) = delete;
   ConsumerNode &operator=(ConsumerNode &&) = delete;
+
   ~ConsumerNode() {
     if (ctrl_ && map_size_ > 0) {
       munmap(ctrl_, map_size_);
     }
   }
 
-  std::optional<std::vector<std::byte>> pop(int expected_type) {
+  std::optional<std::vector<std::byte>> pop(int32_t expected_type) {
     while (true) {
-      uint32_t pos = ctrl_->cons_pos.load(std::memory_order_relaxed);
-      uint32_t prod = ctrl_->prod_pos.load(std::memory_order_acquire);
+      const uint32_t pos = ctrl_->cons_pos.load(std::memory_order_relaxed);
+      const uint32_t prod = ctrl_->prod_pos.load(std::memory_order_acquire);
       if (pos == prod) {
         return std::nullopt;
       }
-      Message *slot = &msgs_[pos];
-      if (slot->ready.load(std::memory_order_acquire) == 0) {
+      Message &slot = msgs_[pos];
+      if (slot.ready.load(std::memory_order_acquire) == 0) {
         return std::nullopt;
       }
-      if (slot->len <= 0 || slot->len > MAX_MSG_SIZE) {
-        advance_consumer(pos);
+      const int t = slot.type.load(std::memory_order_relaxed);
+      const int len = slot.len.load(std::memory_order_relaxed);
+      if (len < 0 || len > MAX_MSG_SIZE) {
+        release_slot(slot, pos);
         continue;
       }
-      bool match = (slot->type == expected_type);
+      const bool match = (t == expected_type);
       std::vector<std::byte> result;
       if (match) {
-        result.resize(slot->len);
-        std::memcpy(result.data(), slot->data, slot->len);
+        result.resize(static_cast<std::size_t>(len));
+        if (len > 0) {
+          std::memcpy(result.data(), slot.data, static_cast<std::size_t>(len));
+        }
       }
-      slot->ready.store(0, std::memory_order_relaxed);
-      slot->type = -1;
-      advance_consumer(pos);
+      release_slot(slot, pos);
       if (match) {
         return result;
       }
     }
   }
 
-  std::optional<std::vector<std::byte>> pop_any() {
-    while (true) {
-      uint32_t pos = ctrl_->cons_pos.load(std::memory_order_relaxed);
-      uint32_t prod = ctrl_->prod_pos.load(std::memory_order_acquire);
-      if (pos == prod) {
-        return std::nullopt;
-      }
-      Message *slot = &msgs_[pos];
-      if (slot->ready.load(std::memory_order_acquire) == 0) {
-        return std::nullopt;
-      }
-      if (slot->len <= 0 || slot->len > MAX_MSG_SIZE) {
-        advance_consumer(pos);
-        continue;
-      }
-      std::vector<std::byte> result(slot->len);
-      std::memcpy(result.data(), slot->data, slot->len);
-      slot->ready.store(0, std::memory_order_relaxed);
-      slot->type = -1;
-      advance_consumer(pos);
-      return result;
-    }
-  }
-
 private:
-  void advance_consumer(uint32_t current_pos) {
-    uint32_t next = (current_pos + 1) % slot_cnt_;
+  void release_slot(Message &slot, uint32_t current_pos) {
+    slot.ready.store(0, std::memory_order_relaxed);
+    slot.type.store(-1, std::memory_order_relaxed);
+    slot.len.store(0, std::memory_order_relaxed);
+    const uint32_t next = (current_pos + 1U) % static_cast<uint32_t>(slot_cnt_);
     ctrl_->cons_pos.store(next, std::memory_order_release);
   }
 
   ControlBlock *ctrl_;
   Message *msgs_;
   int slot_cnt_;
-  size_t map_size_;
+  std::size_t map_size_;
 };

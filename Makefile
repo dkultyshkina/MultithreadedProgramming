@@ -13,15 +13,13 @@ consumer: consumer.cpp queue.h
 clean:
 	rm -f producer consumer
 
-run:
-	@echo "Начало producer..."
-	@./producer &
-	@sleep 1
-	@echo "Начало consumer..."
-	@./consumer
-	@sleep 1
-	@wait
-
-valgrind:
+run: producer consumer
+	@echo "Запуск producer..."
+	@./producer; \
+	 echo "Запуск consumer..."; \
+	 ./consumer; \
+	 wait
+	 
+valgrind: producer consumer
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./producer
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./consumer

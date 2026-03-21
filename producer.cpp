@@ -5,7 +5,7 @@
 
 int main() {
   const std::string name = "/my_queue";
-  shm_unlink(name.c_str());
+  (void)shm_unlink(name.c_str());
   std::cout << "\n PRODUCER \n" << std::endl;
   try {
     ProducerNode producer(name, 8);
@@ -29,7 +29,6 @@ int main() {
       std::cout << "Отправлено " << cmd << std::endl;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    producer.cleanup();
   } catch (const std::exception &e) {
     std::cerr << "Ошибка: " << e.what() << std::endl;
     return 1;
