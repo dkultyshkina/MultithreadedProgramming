@@ -6,9 +6,10 @@
 # РЕШЕНИЕ
 
 ```
-[==========] Running 9 tests from 1 test suite.
+./thread_pool_test
+[==========] Running 8 tests from 1 test suite.
 [----------] Global test environment set-up.
-[----------] 9 tests from ThreadPoolTest
+[----------] 8 tests from ThreadPoolTest
 [ RUN      ] ThreadPoolTest.Creation
 [       OK ] ThreadPoolTest.Creation (0 ms)
 [ RUN      ] ThreadPoolTest.CreationWithZero
@@ -25,13 +26,11 @@
 [       OK ] ThreadPoolTest.ExceptionHandling (0 ms)
 [ RUN      ] ThreadPoolTest.FutureWait
 [       OK ] ThreadPoolTest.FutureWait (100 ms)
-[ RUN      ] ThreadPoolTest.FutureWaitFor
-[       OK ] ThreadPoolTest.FutureWaitFor (50 ms)
-[----------] 9 tests from ThreadPoolTest (177 ms total)
+[----------] 8 tests from ThreadPoolTest (127 ms total)
 
 [----------] Global test environment tear-down
-[==========] 9 tests from 1 test suite ran. (178 ms total)
-[  PASSED  ] 9 tests.
+[==========] 8 tests from 1 test suite ran. (127 ms total)
+[  PASSED  ] 8 tests.
 ```
 
 1. Creation - проверка корректного создания пула с заданным количеством потоков;
