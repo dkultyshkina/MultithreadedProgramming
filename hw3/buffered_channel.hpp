@@ -15,7 +15,7 @@ public:
     not_full_.wait(
         lock, [this]() { return queue_.size() < capacity_ || closed_.load(); });
     if (closed_.load()) {
-      throw std::runtime_error("Cannot send on closed channel");
+      throw std::runtime_error("Закрытый канал");
     }
     queue_.push(value);
     not_empty_.notify_one();
