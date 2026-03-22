@@ -1,31 +1,12 @@
-# Домашнее задание для лекции по теме "Процессы и потоки"
+# Кооперативная многозадачность
+Реализация обхода графа в глубину с использованием кооперативной многозадачности
 
-Реализуйте следующий метод:
-```cpp
-template <typename T>
-void ApplyFunction(std::vector<T>& data, const std::function<void(T&)>& transform, const int threadCount = 1);
+# Решение
 
-```
-
-Данный метод должен применить переданную функцию `transform` к каждому элементу вектора `data`. `threadCount` задает количество потоков, которое нужно использовать для применения функции. Если число потоков превышает число элементов, то число потоков следует взять равным числу элементов.
-
-Напишите тесты для вашей реализации с использованием [gtest](https://google.github.io/googletest/).
-
-Напишите бенчмарк для вашей реализации с использованием [benchmark](https://google.github.io/benchmark/user_guide.html).
-
-В бенчмарке отразите две ситуации -- когда однопоточная версия стабильно быстрее многопоточной и обратную ситуацию. Достигните этого как с помощью подбора размера вектора `data`, так и с помощью подбора функции `transform`.
-
-
-# Cборка
-
-## Сборка, запуск тестов и бенчмарки
+## Сборка, запуск
 
 ```bash
 make 
-```
-
-```bash
-make all
 ```
 
 ## Очистка
@@ -34,96 +15,51 @@ make all
 make clean
 ```
 
-## Собрать и запустить тесты
-```bash 
-make run-test 
-make test
+## Результат
+
+Граф выглядит следующим образом:
+```
+ 1 — 3 — 5 - 6
+ | \   \ |
+ 0 — 2 — 4 
 ```
 
-## Собрать и запустить бенчмарки
-```bash
-make run-benchmark 
-make benchmark
+Стартовые вершины
+1. Task1 (DFS_1): 0
+2. Task2 (DFS_2): 3
+3. Task3 (DFS_3): 4
+
 ```
-
-# Очистить
-```bash
-make clean
+Запуск планировщика. Активных задач: 3
+        Task1 со стартом: 0
+        Task1 посетила узел: 0
+        Task2 со стартом: 3
+        Task2 посетила узел: 3
+        Task3 со стартом: 4
+        Task3 посетила узел: 4
+        Task1 добавляет соседа узла 0: 1 
+        Task1 добавляет соседа узла 0: 2 
+        Task1 с размером стека: 2
+        Task1 посетила узел: 2
+        Task2 добавляет соседа узла 3: 1 
+        Task2 добавляет соседа узла 3: 5 
+        Task2 с размером стека: 2
+        Task2 посетила узел: 5
+        Task3 с размером стека: 0
+        Task3 завершается 
+Задача DFS_3 завершена
+        Task1 добавляет соседа узла 2: 1 
+        Task1 с размером стека: 2
+        Task1 посетила узел: 1
+        Task2 добавляет соседа узла 5: 6 
+        Task2 с размером стека: 2
+        Task2 посетила узел: 6
+        Task1 с размером стека: 1
+        Task1 Пропускаем узел: 1 (уже посещён)
+        Task1 завершается 
+Задача DFS_1 завершена
+        Task2 с размером стека: 1
+        Task2 Пропускаем узел: 1 (уже посещён)
+        Task2 завершается 
+Задача DFS_2 завершена
 ```
-
-# Результат
-
-## Тесты
-```
-[==========] Running 7 tests from 1 test suite.
-[----------] Global test environment set-up.
-[----------] 7 tests from ApplyFunctionTest
-[ RUN      ] ApplyFunctionTest.SimpleIncrement
-[       OK ] ApplyFunctionTest.SimpleIncrement (0 ms)
-[ RUN      ] ApplyFunctionTest.SingleThread
-[       OK ] ApplyFunctionTest.SingleThread (0 ms)
-[ RUN      ] ApplyFunctionTest.MoreThreadsThanElements
-[       OK ] ApplyFunctionTest.MoreThreadsThanElements (0 ms)
-[ RUN      ] ApplyFunctionTest.EmptyVector
-[       OK ] ApplyFunctionTest.EmptyVector (0 ms)
-[ RUN      ] ApplyFunctionTest.ZeroThreads
-[       OK ] ApplyFunctionTest.ZeroThreads (0 ms)
-[ RUN      ] ApplyFunctionTest.HeavyFunction
-[       OK ] ApplyFunctionTest.HeavyFunction (26 ms)
-[ RUN      ] ApplyFunctionTest.StatefulFunction
-[       OK ] ApplyFunctionTest.StatefulFunction (0 ms)
-[----------] 7 tests from ApplyFunctionTest (27 ms total)
-
-[----------] Global test environment tear-down
-[==========] 7 tests from 1 test suite ran. (27 ms total)
-[  PASSED  ] 7 tests.
-```
-
-Тест:
-1. SimpleIncrement - проверяет, что функция применяется ко всем элементам с инкрементом каждого элемента на 1, с 2 потоками
-2. SingleThread - проверяет работу с 1 потоком, умножение на 2
-3. MoreThreadsThanElements - перебирает потоки
-4. EmptyVector - проверяет обработку пустого входного вектора
-5. ZeroThreads - нулевое количество потоков
-6. HeavyFunction - тяжелая функция
-7. StatefulFunction - функция с состоянием
-
-## Benchmark
-```
-Running ./run_benchmark
-Run on (16 X 4507 MHz CPU s)
-CPU Caches:
-  L1 Data 32 KiB (x8)
-  L1 Instruction 32 KiB (x8)
-  L2 Unified 512 KiB (x8)
-  L3 Unified 16384 KiB (x1)
-Load Average: 0.99, 0.73, 0.76
-***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
------------------------------------------------------------------------
-Benchmark                             Time             CPU   Iterations
------------------------------------------------------------------------
-BM_LightFunction_SmallData/1      28500 ns        16125 ns        43618
-BM_LightFunction_SmallData/8     189869 ns       184127 ns         3696
-BM_LightFunction_LargeData/1    2447059 ns       176411 ns         3923
-BM_LightFunction_LargeData/8     884845 ns       444960 ns         1569
-BM_HeavyFunction_SmallData/1      58161 ns        15736 ns        44411
-BM_HeavyFunction_SmallData/8     193651 ns       188066 ns         3652
-BM_HeavyFunction_LargeData/1   27623461 ns        35188 ns          100
-BM_HeavyFunction_LargeData/8    4955303 ns       267916 ns         1000
-```
-
-1. BM_LightFunction_SmallData (легкая функция, 10 элементов)
-
-Однопоточная версия быстрее на маленьком количестве элементов, так как есть накладные расходы на создание потоков.
-
-2. BM_LightFunction_LargeData (легкая функция, 1,000,000 элементов)
-
-Для легкой функции с большим количеством элементов быстрее использовать многопоточный вариант.
-
-3. BM_HeavyFunction_SmallData (тяжелая функция, 10 элементов)
-
-Однопоточная версия быстрее на маленьком количестве элементов, так как есть накладные расходы на создание потоков.
-
-4. BM_HeavyFunction_LargeData (тяжелая функция, 10,000 элементов)
-
-Для тяжелой функции с большим количеством элементов быстрее использовать многопоточный вариант.

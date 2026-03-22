@@ -1,19 +1,16 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -pthread -I.
+CXXFLAGS = -std=c++20 -Wall -Wextra
+LDFLAGS = -pthread
+TARGET = dfs
+SRCS = main.cpp
 
-all: run_tests run_benchmark
+all: clean $(TARGET) run
 
-run_tests: test.cpp
-	$(CXX) $(CXXFLAGS) test.cpp -o run_tests -lgtest -lgtest_main -pthread
+$(TARGET): $(SRCS) dfs.hpp
+	$(CXX) $(CXXFLAGS) -o $@ main.cpp $(LDFLAGS)
 
-run_benchmark: benchmark.cpp
-	$(CXX) $(CXXFLAGS) benchmark.cpp -o run_benchmark -lbenchmark -lpthread
-
-test: run_tests
-	./run_tests
-
-benchmark: run_benchmark
-	./run_benchmark
+run: $(TARGET)
+	./$(TARGET)
 
 clean:
-	rm -f run_tests run_benchmark
+	rm -rf $(TARGET)
