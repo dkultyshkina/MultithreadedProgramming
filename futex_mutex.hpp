@@ -75,7 +75,7 @@ private:
             }
             if (errno != EINTR) {
               throw std::system_error(errno, std::generic_category(),
-                                      "futex_wait failed");
+                                      "futex_wait не выполнен");
             }
           }
         }
