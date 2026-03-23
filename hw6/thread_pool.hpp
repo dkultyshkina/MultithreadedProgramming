@@ -135,39 +135,24 @@ public:
     if (thread_count == 0) {
       thread_count = 1;
     }
-
-    try {
-      for (size_t i = 0; i < thread_count; ++i) {
-        workers.emplace_back([this] {
-          while (true) {
-            std::function<void()> task;
-            {
-              std::unique_lock<std::mutex> lock(queue_mutex);
-              condition.wait(lock, [this] { return stop || !tasks.empty(); });
-              if (stop && tasks.empty()) {
-                return;
-              }
-              task = std::move(tasks.front());
-              tasks.pop();
+    for (size_t i = 0; i < thread_count; ++i) {
+      workers.emplace_back([this] {
+        while (true) {
+          std::function<void()> task;
+          {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            condition.wait(lock, [this] { return stop || !tasks.empty(); });
+            if (stop && tasks.empty()) {
+              return;
             }
-            if (task) {
-              task();
-            }
+            task = std::move(tasks.front());
+            tasks.pop();
           }
-        });
-      }
-    } catch (...) {
-      {
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        stop = true;
-      }
-      condition.notify_all();
-      for (auto &worker : workers) {
-        if (worker.joinable()) {
-          worker.join();
+          if (task) {
+            task();
+          }
         }
-      }
-      throw;
+      });
     }
   }
 
