@@ -8,8 +8,18 @@ int main() {
   (void)shm_unlink(name.c_str());
   std::cout << "\n PRODUCER \n" << std::endl;
   try {
-    ProducerNode producer(name, 8);
+    ProducerNode producer(name, 64 * 1024);
     std::cout << "[OK] Producer создал очередь" << std::endl;
+    const std::string big_message(8192, 'A');
+    std::span<const std::byte> big_data{
+        reinterpret_cast<const std::byte *>(big_message.data()),
+        big_message.size()};
+    if (producer.push(1, big_data)) {
+      std::cout << "Отправлено большое сообщение: " << big_message.size()
+                << " байт" << std::endl;
+    } else {
+      std::cout << "[Ошибка] большое сообщение" << std::endl;
+    }
     for (int i = 0; i < 4; i++) {
       std::string text = "Сообщение " + std::to_string(i + 1);
       std::span<const std::byte> data{

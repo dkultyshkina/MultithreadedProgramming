@@ -16,14 +16,19 @@ int main() {
       std::cout << "[OK] Consumer присоединился к очереди" << std::endl;
       connected = true;
 
-      constexpr int kPayloadMessages = 2;
+      constexpr int kPayloadMessages = 3;
       int received = 0;
       while (received < kPayloadMessages) {
         auto result = consumer.pop(1);
         if (result) {
-          std::string msg(reinterpret_cast<const char *>(result->data()),
-                          result->size());
-          std::cout << "[Получено] " << msg << std::endl;
+          if (result->size() > 128) {
+            std::cout << "[Получено] Большое сообщение: " << result->size()
+                      << " байт" << std::endl;
+          } else {
+            std::string msg(reinterpret_cast<const char *>(result->data()),
+                            result->size());
+            std::cout << "[Получено] " << msg << std::endl;
+          }
           received++;
         } else {
           std::this_thread::sleep_for(std::chrono::milliseconds(50));
